@@ -15,6 +15,7 @@ import {
   runSetupPhase,
 } from "./crawler-phases.js";
 import { CRAWLER_STEPS, createCrawlerProgressReporter } from "./crawler-progress.js";
+import { runDatabaseBackup } from "./database-backup.js";
 import { runCrawler } from "./run.js";
 import { createGroupScope } from "./scrapers/group.js";
 import { notifyWebRefresh } from "./web-refresh.js";
@@ -33,6 +34,7 @@ vi.mock("./crawler-phases.js", () => ({
   runSetupPhase: vi.fn<() => void>(),
 }));
 vi.mock("./scrapers/group.js", () => ({ createGroupScope: vi.fn<() => void>() }));
+vi.mock("./database-backup.js", () => ({ runDatabaseBackup: vi.fn<typeof runDatabaseBackup>() }));
 vi.mock("./web-refresh.js", () => ({ notifyWebRefresh: vi.fn<() => void>() }));
 
 let tempDir: string;
@@ -62,6 +64,7 @@ beforeEach(async () => {
     originalGroup: null,
     [Symbol.asyncDispose]: vi.fn<() => Promise<void>>(),
   });
+  vi.mocked(runDatabaseBackup).mockResolvedValue(undefined);
   vi.mocked(runNotificationPhase).mockResolvedValue(null);
   vi.mocked(notifyWebRefresh).mockResolvedValue(undefined);
   vi.mocked(runSavePhase).mockResolvedValue([]);
@@ -121,6 +124,7 @@ describe("runCrawler progress", () => {
 
     await expect(runCrawler(progress)).rejects.toBe(authError);
 
+    expect(runDatabaseBackup).not.toHaveBeenCalled();
     expect(runScrapePhase).not.toHaveBeenCalled();
     expect(createGroupScope).not.toHaveBeenCalled();
     expect(handleCrawlerFailure).toHaveBeenCalledWith(
@@ -139,6 +143,7 @@ describe("runCrawler progress", () => {
     vi.mocked(runSavePhase).mockRejectedValueOnce(new Error("database cleanup failed"));
 
     await expect(runCrawler(progress)).rejects.toThrow("database cleanup failed");
+    expect(runDatabaseBackup).not.toHaveBeenCalled();
 
     expect(progress.getState().timeline).toContainEqual(
       expect.objectContaining({ step: "database_save", status: "failed" }),
@@ -184,6 +189,13 @@ describe("runCrawler progress", () => {
       expect.anything(),
     );
     expect(runAnalyticsPhase).toHaveBeenCalledOnce();
+    expect(runDatabaseBackup).toHaveBeenCalledOnce();
+    expect(vi.mocked(runAnalyticsPhase).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(runDatabaseBackup).mock.invocationCallOrder[0]!,
+    );
+    expect(vi.mocked(runDatabaseBackup).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(runNotificationPhase).mock.invocationCallOrder[0]!,
+    );
   });
 
   test("グループ復元を完了してから成功通知を送る", async () => {
@@ -288,4 +300,19 @@ describe("runCrawler progress", () => {
       new Map([["account-a", "銀行"]]),
     );
   });
+});
+
+test("バックアップ失敗時は成功通知を送らず、終了処理を行う", async () => {
+  const failure = new Error("backup failed");
+  vi.mocked(runDatabaseBackup).mockRejectedValueOnce(failure);
+  const progress = await createCrawlerProgressReporter(path.join(tempDir, "state.json"), {
+    id: "run-a",
+    source: "test",
+    startedAt: "2026-07-01T00:00:00.000Z",
+  });
+  await expect(runCrawler(progress)).rejects.toBe(failure);
+  expect(runNotificationPhase).not.toHaveBeenCalled();
+  expect(handleCrawlerFailure).toHaveBeenCalledWith(failure, expect.anything(), expect.anything());
+  const runtime = await vi.mocked(runSetupPhase).mock.results[0]!.value;
+  expect(runtime.browser.close).toHaveBeenCalledOnce();
 });

@@ -26,6 +26,7 @@ describe("hasValidCloudflareAccess", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    vi.stubEnv("AUTH_MODE", "");
     vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", "team.cloudflareaccess.com");
     vi.stubEnv("CLOUDFLARE_ACCESS_AUD", "application-audience");
     mocks.jwtVerify.mockResolvedValue({ payload: {} });
@@ -82,6 +83,33 @@ describe("hasValidCloudflareAccess", () => {
     vi.stubEnv("ALLOW_LOCAL_AUTH_BYPASS", bypass);
 
     await expect(hasValidCloudflareAccess(request(undefined, url))).resolves.toBe(false);
+    expect(mocks.jwtVerify).not.toHaveBeenCalled();
+  });
+});
+
+// Decision table: local opt-in and loopback URL are both required in production.
+describe("local Docker access", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEMO_MODE", "false");
+    vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", "");
+    vi.stubEnv("CLOUDFLARE_ACCESS_AUD", "");
+  });
+
+  it.each([
+    ["local", "http://127.0.0.1:8765/api/chat", true],
+    ["local", "http://localhost:8765/api/chat", true],
+    ["local", "http://[::1]:8765/api/chat", true],
+    ["local", "http://192.0.2.10:8765/api/chat", false],
+    ["local", "https://dashboard.example.com/api/chat", false],
+    ["local", "http://localhost.attacker.example/api/chat", false],
+    ["", "http://127.0.0.1:8765/api/chat", false],
+    ["unknown", "http://127.0.0.1:8765/api/chat", false],
+  ])("mode=%s url=%s allows=%s", async (mode, url, expected) => {
+    vi.stubEnv("AUTH_MODE", mode);
+    await expect(hasValidCloudflareAccess(request(undefined, url))).resolves.toBe(expected);
     expect(mocks.jwtVerify).not.toHaveBeenCalled();
   });
 });

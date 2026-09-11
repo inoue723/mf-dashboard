@@ -1,5 +1,9 @@
 # セットアップ
 
+Cloudflareを使わずこのMacで運用する場合は[ローカルDocker手順](local-docker.md)を参照。
+
+SQLiteのクラウドバックアップは[バックアップ手順](database-backup.md)を参照。
+
 このガイドでは、ローカルPC上のDocker ComposeでWebダッシュボード、crawler、Cloudflare Tunnelを常時稼働させる。完了すると、許可されたGoogleアカウントでダッシュボードへアクセスでき、毎日6:30と15:30（JST）の自動更新と画面上からの手動更新を利用できる。
 
 セットアップは次の順番で進める。

@@ -19,6 +19,7 @@ import {
   runCrawlerStep,
   type CrawlerProgressReporter,
 } from "./crawler-progress.js";
+import { runDatabaseBackup } from "./database-backup.js";
 import { error, info, warn } from "./logger.js";
 import { createGroupScope } from "./scrapers/group.js";
 import { notifyWebRefresh } from "./web-refresh.js";
@@ -103,6 +104,7 @@ export async function runCrawler(progress: CrawlerProgressReporter): Promise<voi
     } finally {
       await disposeGroupScope(groupScope, crawlFailed);
     }
+    await runDatabaseBackup(activeRuntime.db);
     const notificationStep = await progress.startStep(CRAWLER_STEPS.notification);
     const notificationFailure = await runNotificationPhase(
       scrapeResult.groupDataList,

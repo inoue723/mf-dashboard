@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./backup": "./src/backup.ts",
     ".": "./src/index.ts",
     "./schema": "./src/schema/schema.ts",
     "./repository/save-scraped-data": "./src/repositories/save-scraped-data.ts",

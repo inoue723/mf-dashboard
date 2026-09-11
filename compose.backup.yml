@@ -1,0 +1,11 @@
+# docker compose -f compose.yml -f compose.backup.yml up -d
+services:
+  crawler:
+    environment:
+      DB_BACKUP_DIR: /app/backups
+    volumes:
+      - type: bind
+        source: ${DB_BACKUP_DIR:?Set DB_BACKUP_DIR to an existing host backup directory}
+        target: /app/backups
+        bind:
+          create_host_path: false

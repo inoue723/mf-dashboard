@@ -1,5 +1,5 @@
 import { mfUrls } from "@mf-dashboard/meta/urls";
-import type { BrowserContext, Page } from "playwright";
+import { errors, type BrowserContext, type Page } from "playwright";
 import { log, debug } from "../logger.js";
 import { navigateToAccountsPage } from "../scrapers/refresh.js";
 import { getCredentials, getOTP } from "./credentials.js";
@@ -66,19 +66,21 @@ async function maybeHandleOtp(
     timeout?: number;
   },
 ): Promise<void> {
+  debug(`Checking for ${label} OTP...`);
+  const otpInput = page.locator(inputSelector).first();
   try {
-    debug(`Checking for ${label} OTP...`);
-    const otpInput = page.locator(inputSelector).first();
     await otpInput.waitFor({ state: "visible", timeout });
-
-    debug(`${label} OTP required, getting from 1Password...`);
-    const otp = await getOTP();
-    await otpInput.fill(otp);
-    debug("Clicking verify button...");
-    await page.locator(submitSelector).first().click();
-  } catch {
+  } catch (err) {
+    if (!(err instanceof errors.TimeoutError)) throw err;
     debug(`${label} OTP not required`);
+    return;
   }
+
+  debug(`${label} OTP required, getting from 1Password...`);
+  const otp = await getOTP();
+  await otpInput.fill(otp);
+  debug("Clicking verify button...");
+  await page.locator(submitSelector).first().click();
 }
 
 /**
@@ -247,7 +249,7 @@ export async function login(page: Page): Promise<void> {
     debug("Waiting for ME redirect...");
     await page.waitForURL(`${mfUrls.home}**`, { timeout: TIMEOUTS.login });
   } else {
-    debug("Already redirected to ME (session exists)");
+    debug("Checking whether the browser reached an authenticated ME page");
   }
 
   // Recheck against an authenticated-only page. moneyforward.com/ itself is
