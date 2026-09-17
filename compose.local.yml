@@ -96,6 +96,7 @@ services:
     volumes:
       - ./data:/app/data
       - crawler_auth_state:/app/crawler-state
+      - ./apps/crawler/debug:/app/apps/crawler/debug
     expose:
       - "8766"
     depends_on:

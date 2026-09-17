@@ -7,6 +7,28 @@ const DEFAULT_MAX_WAIT_MINUTES = 20;
 const POLL_INTERVAL_MS = 30000; // 30 seconds
 const NAVIGATION_RETRY_DELAY_MS = 1000;
 const NAVIGATION_TIMEOUT_MS = 60000;
+export const BULK_REFRESH_SELECTOR = 'a.refresh[href="/aggregation_queue"]';
+export const ADVERTISEMENT_CLOSE_SELECTOR = ".ab-in-app-message .ab-close-button";
+
+export async function clickBulkRefreshControl(page: Page): Promise<void> {
+  const closeAdvertisement = page.locator(ADVERTISEMENT_CLOSE_SELECTOR).first();
+  // Braze advertisements can arrive after navigation, including during click retries.
+  await page.addLocatorHandler(closeAdvertisement, async (closeButton) => {
+    info("Closing advertisement before account refresh");
+    await closeButton.click({ timeout: 5000 });
+  });
+  try {
+    await page.goto(mfUrls.home, {
+      waitUntil: "domcontentloaded",
+      timeout: NAVIGATION_TIMEOUT_MS,
+    });
+    const refreshButton = page.locator(BULK_REFRESH_SELECTOR);
+    await refreshButton.waitFor({ state: "visible", timeout: 15000 });
+    await refreshButton.click({ timeout: 15000 });
+  } finally {
+    await page.removeLocatorHandler(closeAdvertisement);
+  }
+}
 
 interface NavigationOptions {
   retryDelayMs?: number;
@@ -126,12 +148,7 @@ export async function clickRefreshButton(
   const pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
   debug("Looking for refresh button...");
 
-  // Navigate to home and click refresh button
-  await page.goto(mfUrls.home);
-  await page.waitForLoadState("networkidle");
-
-  const refreshButton = page.locator('a:has-text("一括更新")').first();
-  await refreshButton.click();
+  await clickBulkRefreshControl(page);
 
   info("Refreshing accounts...");
 

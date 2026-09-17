@@ -1,6 +1,9 @@
 import type { Page } from "playwright";
 import { describe, expect, test, vi } from "vitest";
 import {
+  clickBulkRefreshControl,
+  BULK_REFRESH_SELECTOR,
+  ADVERTISEMENT_CLOSE_SELECTOR,
   getMaxWaitMinutes,
   getRefreshStatus,
   navigateToAccountsPage,
@@ -145,5 +148,77 @@ describe("navigateToAccountsPage", () => {
 
     await expect(navigateToAccountsPage(page, { retryDelayMs: 0 })).rejects.toBe(error);
     expect(goto).toHaveBeenCalledOnce();
+  });
+});
+
+describe("clickBulkRefreshControl", () => {
+  function createRefreshPage({ advertisement = false } = {}) {
+    const close = {
+      click: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      first: vi.fn<() => unknown>(),
+    };
+    close.first.mockReturnValue(close);
+    let handler: (locator: import("playwright").Locator) => Promise<void>;
+    const refresh = {
+      waitFor: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      click: vi.fn<() => Promise<void>>().mockImplementation(async () => {
+        if (advertisement) await handler(close as unknown as import("playwright").Locator);
+      }),
+    };
+    const goto = vi.fn<() => Promise<null>>().mockResolvedValue(null);
+    const remove = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const page = {
+      goto,
+      locator: vi.fn<(selector: string) => unknown>((selector) => {
+        if (selector === ADVERTISEMENT_CLOSE_SELECTOR) return close;
+        if (selector === BULK_REFRESH_SELECTOR) return refresh;
+        throw new Error("Unexpected selector");
+      }),
+      addLocatorHandler: vi
+        .fn<(locator: unknown, callback: typeof handler) => Promise<void>>()
+        .mockImplementation(async (_locator, callback) => {
+          handler = callback;
+        }),
+      removeLocatorHandler: remove,
+    } as unknown as Page;
+    return { page, goto, close, refresh, remove };
+  }
+
+  test("広告がなくても通信の停止を待たず、表示された一括更新リンクを押す", async () => {
+    const { page, goto, refresh, close, remove } = createRefreshPage();
+    await clickBulkRefreshControl(page);
+    expect(goto).toHaveBeenCalledWith("https://moneyforward.com/", {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    expect(refresh.waitFor).toHaveBeenCalledWith({ state: "visible", timeout: 15000 });
+    expect(refresh.click).toHaveBeenCalledWith({ timeout: 15000 });
+    expect(close.click).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  test("操作直前に広告が表示されたら閉じてから更新を続行する", async () => {
+    const { page, close, refresh, remove } = createRefreshPage({ advertisement: true });
+    await clickBulkRefreshControl(page);
+    expect(close.click).toHaveBeenCalledWith({ timeout: 5000 });
+    expect(refresh.click).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  test("広告を閉じられない場合は失敗を伝え、ハンドラーを解除する", async () => {
+    const { page, close, remove } = createRefreshPage({ advertisement: true });
+    close.click.mockRejectedValueOnce(new Error("Advertisement could not be closed"));
+    await expect(clickBulkRefreshControl(page)).rejects.toThrow(
+      "Advertisement could not be closed",
+    );
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  test("更新ボタンが見つからない場合も失敗を伝え、ハンドラーを解除する", async () => {
+    const { page, refresh, remove } = createRefreshPage();
+    refresh.waitFor.mockRejectedValueOnce(new Error("Refresh link missing"));
+    await expect(clickBulkRefreshControl(page)).rejects.toThrow("Refresh link missing");
+    expect(refresh.click).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledOnce();
   });
 });
